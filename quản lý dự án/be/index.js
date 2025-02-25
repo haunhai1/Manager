@@ -35,7 +35,11 @@ const upload = multer({
   }
 });
 
-app.use(cors());
+app.use(cors({
+  origin: 'http://localhost:4200',
+  methods: ['GET', 'POST', 'PUT', 'DELETE'],
+  allowedHeaders: ['Content-Type', 'Authorization']
+}));
 app.use(exp.json());
 app.use(exp.urlencoded({ extended: true }));
 app.use('/uploads', exp.static('uploads'));
@@ -88,8 +92,11 @@ app.get("/nhan_vien/chi_tiet/:id", function (req, res) {
 
 //tương tự hiển thị danh sách task, cũng lấy từ csdl có sẵn
 app.get("/task", function (req, res) {
-  let sql = `SELECT id, ten_task, du_an_id, nhan_vien_id, mo_ta, status, priority
-         FROM task`;
+  let sql = `
+    SELECT t.id, t.ten_task, t.mo_ta, t.nhan_vien_id, t.status, t.priority, d.ten_du_an 
+    FROM task t
+    JOIN du_an d ON t.du_an_id = d.id
+  `;
   db.query(sql, function (err, data) {
     if (err) res.json({ message: err });
     else res.json(data);
@@ -150,7 +157,41 @@ app.delete("/du_an/:id", function (req, res) {
 
 
 //--------------------------------PHẦN NHÂN VIÊN---------------------------------------------------//
+// API thêm nhân viên
+app.post("/nhan_vien", upload.single('hinh_anh'), function (req, res) {
+  try {
+    let { ho, ten, ngay_sinh, phai, khu_vuc, mo_ta } = req.body;
+    let hinh_anh = req.file ? `/uploads/${req.file.filename}` : null;
 
+    // Kiểm tra dữ liệu đầu vào
+    if (!ho || !ten || !ngay_sinh || phai === undefined || !khu_vuc) {
+      return res.status(400).json({
+        "Thong Bao": "Vui lòng điền đầy đủ thông tin bắt buộc"
+      });
+    }
+
+    let sql = "INSERT INTO nhan_vien (ho, ten, ngay_sinh, phai, khu_vuc, hinh_anh, mo_ta) VALUES (?, ?, ?, ?, ?, ?, ?)";
+
+    db.query(sql, [ho, ten, ngay_sinh, phai, khu_vuc, hinh_anh, mo_ta], (err, result) => {
+      if (err) {
+        console.error("Lỗi khi thêm nhân viên:", err);
+        return res.status(500).json({
+          "Thong Bao": "Lỗi khi thêm nhân viên: " + err.message
+        });
+      }
+
+      res.json({
+        "Thong Bao": "Đã thêm thành công nhân viên với ID: " + result.insertId,
+        "hinh_anh": hinh_anh
+      });
+    });
+  } catch (error) {
+    console.error("Lỗi server:", error);
+    res.status(500).json({
+      "Thong Bao": "Lỗi server khi xử lý yêu cầu"
+    });
+  }
+});
 //cập nhật chi tiết nhân viên
 app.put("/nhan_vien/:id", upload.single('hinh_anh'), function (req, res) {
   try {
@@ -212,7 +253,11 @@ app.delete("/nhan_vien/:id", function (req, res) {
 //--------------------------------PHẦN TASK---------------------------------------------------//
 //HIỂN THỊ DANH SÁCH TASK
 app.get("/task", function (req, res) {
-  let sql = `SELECT id, ten_task, du_an_id, nhan_vien_id, mo_ta, status, priority FROM task`;
+  let sql = `
+    SELECT t.id, t.ten_task, t.mo_ta, t.nhan_vien_id, t.status, t.priority, d.ten_du_an 
+    FROM task t
+    JOIN du_an d ON t.du_an_id = d.id
+  `;
   db.query(sql, function (err, data) {
     if (err) res.json({ message: err });
     else res.json(data);
@@ -434,44 +479,15 @@ app.post('/change-password', verifyToken, async (req, res) => {
   }
 });
 
-// API thêm nhân viên
-app.post("/nhan_vien", upload.single('hinh_anh'), function (req, res) {
-  try {
-    let { ho, ten, ngay_sinh, phai, khu_vuc, mo_ta } = req.body;
-    let hinh_anh = req.file ? `/uploads/${req.file.filename}` : null;
-
-    // Kiểm tra dữ liệu đầu vào
-    if (!ho || !ten || !ngay_sinh || phai === undefined || !khu_vuc) {
-      return res.status(400).json({
-        "Thong Bao": "Vui lòng điền đầy đủ thông tin bắt buộc"
-      });
-    }
-
-    let sql = "INSERT INTO nhan_vien (ho, ten, ngay_sinh, phai, khu_vuc, hinh_anh, mo_ta) VALUES (?, ?, ?, ?, ?, ?, ?)";
-
-    db.query(sql, [ho, ten, ngay_sinh, phai, khu_vuc, hinh_anh, mo_ta], (err, result) => {
-      if (err) {
-        console.error("Lỗi khi thêm nhân viên:", err);
-        return res.status(500).json({
-          "Thong Bao": "Lỗi khi thêm nhân viên: " + err.message
-        });
-      }
-
-      res.json({
-        "Thong Bao": "Đã thêm thành công nhân viên với ID: " + result.insertId,
-        "hinh_anh": hinh_anh
-      });
-    });
-  } catch (error) {
-    console.error("Lỗi server:", error);
-    res.status(500).json({
-      "Thong Bao": "Lỗi server khi xử lý yêu cầu"
-    });
-  }
-});
 
 // Route contact
 var nodemailer = require('nodemailer');
+// Lấy dữ liệu gmail
+app.get('/contact', function(req, res) {
+  res.render('contact');
+  mess: req.flash('mess');
+});
+// Gửi email
 app.post('/contact/send', function(req, res) {
   const { firstName, lastName, email, subject, message } = req.body;
   
@@ -479,19 +495,21 @@ app.post('/contact/send', function(req, res) {
     service: 'gmail',
     auth: {
       user: 'phantrunghauntn2@gmail.com',
-      pass: 'uoyf cqaf woqi dshz' // App Password từ Google Account
+      pass: 'uoyf cqaf woqi dshz'
     }
   });
 
   var mailOptions = {
-    from: 'phantrunghauntn2@gmail.com',
-    to: 'phantrunghauntn2@gmail.com', 
-    subject: subject,
+    from: '"Contact Form" <phantrunghauntn2@gmail.com>', // Tài khoản gửi cố định
+    to: 'phantrunghauntn2@gmail.com',
+    replyTo: email, // Email của người dùng để nhận phản hồi
+    subject: `New Contact Form: ${subject}`,
     html: `
       <h3>Thông tin liên hệ mới</h3>
       <ul>
         <li>Họ và tên: ${firstName} ${lastName}</li>
-        <li>Email: ${email}</li>
+        <li>Email người gửi: ${email}</li>
+        <li>Chủ đề: ${subject}</li>
         <li>Nội dung: ${message}</li>
       </ul>
     `
